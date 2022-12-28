@@ -40,6 +40,8 @@ void WebRTCPeerConnectionExtension::_bind_methods() {
 	GDVIRTUAL_BIND(_set_remote_description, "p_type", "p_sdp");
 	GDVIRTUAL_BIND(_set_local_description, "p_type", "p_sdp");
 	GDVIRTUAL_BIND(_add_ice_candidate, "p_sdp_mid_name", "p_sdp_mline_index", "p_sdp_name");
+	GDVIRTUAL_BIND(_add_track, "p_source");
+	GDVIRTUAL_BIND(_remove_track, "p_source");
 	GDVIRTUAL_BIND(_poll);
 	GDVIRTUAL_BIND(_close);
 }

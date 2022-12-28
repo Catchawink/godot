@@ -60,6 +60,8 @@ public:
 	EXBIND2R(Error, set_remote_description, String, String);
 	EXBIND2R(Error, set_local_description, String, String);
 	EXBIND3R(Error, add_ice_candidate, String, int, String);
+	EXBIND1R(Error, add_track, Ref<AudioEffectRecord>);
+	EXBIND1(remove_track, Ref<AudioEffectRecord>);
 	EXBIND0R(Error, poll);
 	EXBIND0(close);
 

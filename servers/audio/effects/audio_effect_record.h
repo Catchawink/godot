@@ -99,6 +99,7 @@ public:
 	void set_format(AudioStreamWAV::Format p_format);
 	AudioStreamWAV::Format get_format() const;
 	Ref<AudioStreamWAV> get_recording() const;
+	const float* get_recording_raw(int &r_size) const;
 
 	AudioEffectRecord();
 };

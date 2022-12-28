@@ -56,6 +56,8 @@ WebRTCPeerConnection *WebRTCPeerConnection::create() {
 #endif
 }
 
+void (*WebRTCPeerConnection::_bind_extra_methods)() = NULL;
+
 void WebRTCPeerConnection::_bind_methods() {
 	ClassDB::bind_static_method(get_class_static(), D_METHOD("set_default_extension", "extension_class"), &WebRTCPeerConnectionExtension::set_default_extension);
 
@@ -65,6 +67,7 @@ void WebRTCPeerConnection::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_local_description", "type", "sdp"), &WebRTCPeerConnection::set_local_description);
 	ClassDB::bind_method(D_METHOD("set_remote_description", "type", "sdp"), &WebRTCPeerConnection::set_remote_description);
 	ClassDB::bind_method(D_METHOD("add_ice_candidate", "media", "index", "name"), &WebRTCPeerConnection::add_ice_candidate);
+	ClassDB::bind_method(D_METHOD("add_track", "source"), &WebRTCPeerConnection::add_track);
 	ClassDB::bind_method(D_METHOD("poll"), &WebRTCPeerConnection::poll);
 	ClassDB::bind_method(D_METHOD("close"), &WebRTCPeerConnection::close);
 
@@ -75,6 +78,7 @@ void WebRTCPeerConnection::_bind_methods() {
 	ADD_SIGNAL(MethodInfo("session_description_created", PropertyInfo(Variant::STRING, "type"), PropertyInfo(Variant::STRING, "sdp")));
 	ADD_SIGNAL(MethodInfo("ice_candidate_created", PropertyInfo(Variant::STRING, "media"), PropertyInfo(Variant::INT, "index"), PropertyInfo(Variant::STRING, "name")));
 	ADD_SIGNAL(MethodInfo("data_channel_received", PropertyInfo(Variant::OBJECT, "channel", PROPERTY_HINT_RESOURCE_TYPE, "WebRTCDataChannel")));
+	ADD_SIGNAL(MethodInfo("media_track_received", PropertyInfo(Variant::OBJECT, "track", PROPERTY_HINT_RESOURCE_TYPE, "AudioStream")));
 
 	BIND_ENUM_CONSTANT(STATE_NEW);
 	BIND_ENUM_CONSTANT(STATE_CONNECTING);
@@ -93,6 +97,8 @@ void WebRTCPeerConnection::_bind_methods() {
 	BIND_ENUM_CONSTANT(SIGNALING_STATE_HAVE_LOCAL_PRANSWER);
 	BIND_ENUM_CONSTANT(SIGNALING_STATE_HAVE_REMOTE_PRANSWER);
 	BIND_ENUM_CONSTANT(SIGNALING_STATE_CLOSED);
+
+	if (_bind_extra_methods) _bind_extra_methods();
 }
 
 WebRTCPeerConnection::WebRTCPeerConnection() {

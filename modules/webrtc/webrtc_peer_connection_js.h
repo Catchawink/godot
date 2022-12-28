@@ -34,6 +34,8 @@
 #ifdef WEB_ENABLED
 
 #include "webrtc_peer_connection.h"
+#include "servers/audio/effects/audio_stream_generator.h"
+#include "core/set.h"
 
 extern "C" {
 typedef void (*RTCOnIceConnectionStateChange)(void *p_obj, int p_state);
@@ -61,6 +63,7 @@ private:
 	ConnectionState _conn_state = STATE_NEW;
 	GatheringState _gathering_state = GATHERING_STATE_NEW;
 	SignalingState _signaling_state = SIGNALING_STATE_STABLE;
+	Map<Ref<AudioEffectRecord>, int> _tracks;
 
 	static void _on_connection_state_changed(void *p_obj, int p_state);
 	static void _on_gathering_state_changed(void *p_obj, int p_state);
@@ -70,7 +73,17 @@ private:
 	static void _on_session_created(void *p_obj, const char *p_type, const char *p_session);
 	static void _on_error(void *p_obj);
 
+protected:
+	static void _bind_methods();
+
 public:
+	Map<int, ObjectID> _playbacks;
+	static void make_default() {
+		WebRTCPeerConnection::_create = WebRTCPeerConnectionJS::_create;
+		WebRTCPeerConnection::_bind_extra_methods = WebRTCPeerConnectionJS::_bind_methods;
+	}
+
+	void _track_instanced(Ref<AudioStreamGeneratorPlayback> p_playback, int p_js_id);
 	virtual ConnectionState get_connection_state() const override;
 	virtual GatheringState get_gathering_state() const override;
 	virtual SignalingState get_signaling_state() const override;
@@ -81,6 +94,8 @@ public:
 	virtual Error set_remote_description(String type, String sdp) override;
 	virtual Error set_local_description(String type, String sdp) override;
 	virtual Error add_ice_candidate(String sdpMidName, int sdpMlineIndexName, String sdpName) override;
+	virtual Error add_track(Ref<AudioEffectRecord> p_source);
+	virtual void remove_track(Ref<AudioEffectRecord> p_source);
 	virtual Error poll() override;
 	virtual void close() override;
 

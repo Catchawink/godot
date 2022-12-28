@@ -34,6 +34,8 @@
 
 #include "webrtc_data_channel_js.h"
 
+#include "platform/javascript/audio_driver_javascript.h"
+
 #include "emscripten.h"
 
 void WebRTCPeerConnectionJS::_on_ice_candidate(void *p_obj, const char *p_mid_name, int p_mline_idx, const char *p_candidate) {
@@ -70,10 +72,158 @@ void WebRTCPeerConnectionJS::_on_data_channel(void *p_obj, int p_id) {
 	peer->emit_signal(SNAME("data_channel_received"), Ref<WebRTCDataChannel>(memnew(WebRTCDataChannelJS(p_id))));
 }
 
+void WebRTCPeerConnectionJS::_track_instanced(Ref<AudioStreamGeneratorPlayback> p_playback, int p_js_id) {
+	/* clang-format off */
+	int id = EM_ASM_INT({
+		try {
+			var dict = Module.IDHandler.get($0);
+			var track = Module.IDHandler.get($1);
+			var driver = Module.IDHandler.get($2);
+			if (!dict || !driver) return;
+
+			var jsId;
+
+			var source = driver["context"].createMediaStreamSource(track["stream"]);
+			var script = driver["context"].createScriptProcessor(driver["script"].bufferSize, 2, 2);
+			var getPlayback = cwrap("_emrtc_get_playback", "number", ["number"]);
+			var playbackPushFrame = cwrap("_emrtc_playback_push_frame", null, ["number", "number", "number"]);
+			script.onaudioprocess = function(audioProcessingEvent) {
+				var playback = getPlayback(dict["ptr"], jsId);
+				if (playback == 0) {
+					Module.IDHandler.remove(jsId);
+					source.disconnect(script);
+					source = undefined;
+					script = undefined;
+					return;
+				}
+				var input = audioProcessingEvent.inputBuffer;
+				var inputDataL = input.getChannelData(0);
+				var inputDataR = input.numberOfChannels > 1 ? input.getChannelData(1) : inputDataL;
+				for (var i = 0; i < inputDataL.length; i++) {
+					playbackPushFrame(playback, inputDataL[i], inputDataR[i]);
+				}
+			};
+
+			source.connect(script);
+
+			jsId = Module.IDHandler.add({
+				"script": script,
+				"source": source
+			});
+			return jsId;
+		} catch (e) {
+			console.log(e);
+			return 0;
+		}
+	}, _js_id, p_js_id, AudioDriverJavaScript::singleton->get_js_driver_id());
+	/* clang-format on */
+
+	_playbacks[id] = p_playback->get_instance_id();
+}
+
 void WebRTCPeerConnectionJS::close() {
 	godot_js_rtc_pc_close(_js_id);
 	_conn_state = STATE_CLOSED;
 }
+
+Error WebRTCPeerConnectionJS::add_track(Ref<AudioEffectRecord> p_source) {
+	if (_tracks.has(p_source)) return ERR_ALREADY_IN_USE;
+
+	AudioEffectRecord *ptr = p_source.ptr();
+
+	/* clang-format off */
+	int track_id = EM_ASM_INT({
+		try {
+			var dict = Module.IDHandler.get($0);
+			var driver = Module.IDHandler.get($1);
+			var record = $2;
+			if (!dict || !driver) return;
+
+			var dest = driver["context"].createMediaStreamDestination(driver["context"], {});
+			var script = driver["context"].createScriptProcessor(driver["script"].bufferSize, 2, 2);
+			var streamGetBuffer = cwrap("_emrtc_get_stream_buffer", "number", ["number"]);
+			var streamGetBufferSize = cwrap("_emrtc_get_stream_buffer_size", "number", ["number"]);
+			var streamResetBuffer = cwrap("_emrtc_reset_stream_buffer", null, ["number"]);
+			var numberOfChannels = 2;
+			script.onaudioprocess = function(audioProcessingEvent) {
+				var output = audioProcessingEvent.outputBuffer;
+
+				var source = streamGetBuffer(record);
+				var sourceSize = streamGetBufferSize(record);
+
+				//if (sourceSize != output.length) console.log("Buffer underflow/overflow: Output data size mismatch!", sourceSize, output.length);
+
+				var internalBuffer = HEAPF32.subarray(
+						source / HEAPF32.BYTES_PER_ELEMENT,
+						source / HEAPF32.BYTES_PER_ELEMENT + sourceSize * numberOfChannels);
+
+				for (var channel = 0; channel < output.numberOfChannels; channel++) {
+					var outputData = output.getChannelData(channel);
+					// Loop through samples.
+					for (var sample = 0; sample < Math.min(outputData.length, sourceSize); sample++) {
+						outputData[sample] = internalBuffer[sample * numberOfChannels + channel % numberOfChannels];
+					}
+					for (var sample = Math.min(outputData.length, sourceSize); sample < outputData.length; sample++) {
+						outputData[sample] = 0;
+					}
+				}
+				streamResetBuffer(record);
+			};
+
+			script.connect(dest);
+			driver["script"].connect(script); // Hopefully ensure that our audio process is called after the main audio process
+
+			var tracks = dest.stream.getTracks();
+			for (var i = 0; i < tracks.length; i++) {
+				dict["conn"].addTrack(tracks[i], dest.stream);
+			}
+
+			return Module.IDHandler.add({
+				"dest": dest,
+				"script": script
+			});
+		} catch (e) {
+			console.log(e);
+			return 0;
+		}
+	}, _js_id, AudioDriverJavaScript::singleton->get_js_driver_id(), ptr);
+	/* clang-format on */
+
+	p_source->set_recording_active(true);
+	_tracks[p_source] = track_id;
+
+	return OK;
+};
+
+void WebRTCPeerConnectionJS::remove_track(Ref<AudioEffectRecord> p_source) {
+	if (!_tracks.has(p_source)) return;
+
+	/* clang-format off */
+	EM_ASM({
+		var dict = Module.IDHandler.get($0);
+		var driver = Module.IDHandler.get($1);
+		var stream = Module.IDHandler.get($2);
+		Module.IDHandler.remove($2);
+		if (!dict || !driver || !stream) return;
+
+		stream["script"].onaudioprocess = null;
+
+		stream["script"].disconnect(stream["dest"]);
+		driver["script"].disconnect(stream["script"]);
+
+		var tracks = stream["dest"].stream.getTracks();
+		for (var i = 0; i < tracks.length; i++) {
+			dict["conn"].removeTrack(tracks[i], dest.stream);
+		}
+
+		stream["script"] = undefined;
+		stream["dest"] = undefined;
+	}, _js_id, AudioDriverJavaScript::singleton->get_js_driver_id(), _tracks[p_source]);
+	/* clang-format on */
+
+	_tracks.erase(p_source);
+
+};
 
 Error WebRTCPeerConnectionJS::create_offer() {
 	ERR_FAIL_COND_V(_conn_state != STATE_NEW, FAILED);
@@ -125,6 +275,10 @@ Ref<WebRTCDataChannel> WebRTCPeerConnectionJS::create_data_channel(String p_chan
 
 Error WebRTCPeerConnectionJS::poll() {
 	return OK;
+}
+
+void WebRTCPeerConnectionJS::_bind_methods() {
+	ClassDB::bind_method(D_METHOD("_track_instanced"), &WebRTCPeerConnectionJS::_track_instanced);
 }
 
 WebRTCPeerConnection::GatheringState WebRTCPeerConnectionJS::get_gathering_state() const {

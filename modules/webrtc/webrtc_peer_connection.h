@@ -33,6 +33,7 @@
 
 #include "core/io/packet_peer.h"
 #include "modules/webrtc/webrtc_data_channel.h"
+#include "servers/audio/effects/audio_effect_record.h"
 
 class WebRTCPeerConnection : public RefCounted {
 	GDCLASS(WebRTCPeerConnection, RefCounted);
@@ -67,6 +68,7 @@ private:
 
 protected:
 	static void _bind_methods();
+	static void (*_bind_extra_methods)();
 
 public:
 	static void set_default_extension(const StringName &p_name);
@@ -81,6 +83,8 @@ public:
 	virtual Error set_remote_description(String type, String sdp) = 0;
 	virtual Error set_local_description(String type, String sdp) = 0;
 	virtual Error add_ice_candidate(String sdpMidName, int sdpMlineIndexName, String sdpName) = 0;
+	virtual Error add_track(Ref<AudioEffectRecord> p_source) = 0;
+	virtual void remove_track(Ref<AudioEffectRecord> p_source) = 0;
 	virtual Error poll() = 0;
 	virtual void close() = 0;
 
